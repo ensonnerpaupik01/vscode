@@ -344,6 +344,7 @@ export class AgentService extends Disposable implements IAgentService {
 					status: liveState.summary.status,
 					activity: liveState.summary.activity,
 					model: liveState.summary.model ?? s.model,
+					agent: liveState.summary.agent ?? s.agent,
 					changesets: liveState.summary.changesets ?? s.changesets,
 				};
 			}
@@ -492,6 +493,7 @@ export class AgentService extends Disposable implements IAgentService {
 			modifiedAt: now,
 			...(created.project ? { project: { uri: created.project.uri.toString(), displayName: created.project.displayName } } : {}),
 			model: config?.model,
+			agent: config?.agent,
 			workingDirectory: (created.workingDirectory ?? config?.workingDirectory)?.toString(),
 			changesets: buildDefaultChangesetCatalogue(session.toString()),
 		};
@@ -1210,6 +1212,7 @@ export class AgentService extends Disposable implements IAgentService {
 			modifiedAt: meta.modifiedTime,
 			...(meta.project ? { project: { uri: meta.project.uri.toString(), displayName: meta.project.displayName } } : {}),
 			model: meta.model,
+			agent: meta.agent,
 			workingDirectory: meta.workingDirectory?.toString(),
 			changesets: buildDefaultChangesetCatalogue(sessionStr),
 		};
