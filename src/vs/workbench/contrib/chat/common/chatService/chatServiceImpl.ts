@@ -963,6 +963,8 @@ export class ChatService extends Disposable implements IChatService {
 
 			const hasPendingRequest = this._pendingRequests.has(sessionResource);
 
+			options = this._applySystemInitiatedModelOverride(options);
+
 			if (options?.queue) {
 				const queued = this.queuePendingRequest(model, sessionResource, request, options);
 				if (!options.pauseQueue) {
@@ -1065,19 +1067,42 @@ export class ChatService extends Disposable implements IChatService {
 			return undefined;
 		}
 		const configured = this.configurationService.getValue<string>(ChatConfiguration.UtilitySmallModel);
-		const vendorAndId = (typeof configured === 'string' && configured.length > 0) ? configured : 'copilot/gpt-4o-mini';
+		const trimmed = typeof configured === 'string' ? configured.trim() : '';
+		const vendorAndId = trimmed.length > 0 ? trimmed : 'copilot/gpt-4o-mini';
+		const label = options.systemInitiatedLabel ?? '';
+		const matches: string[] = [];
 		for (const identifier of this.languageModelsService.getLanguageModelIds()) {
 			const metadata = this.languageModelsService.lookupLanguageModel(identifier);
 			if (metadata && `${metadata.vendor}/${metadata.id}` === vendorAndId) {
-				this.logService.trace(`[ChatService] system-initiated request routed to utility-small model '${vendorAndId}' (identifier: '${identifier}', label: '${options.systemInitiatedLabel ?? ''}')`);
-				return identifier;
+				matches.push(identifier);
 			}
 		}
-		this.logService.trace(`[ChatService] system-initiated request could not resolve utility-small model '${vendorAndId}'; falling back to caller's model (label: '${options.systemInitiatedLabel ?? ''}')`);
+		if (matches.length === 1) {
+			this.logService.trace(`[ChatService] system-initiated request routed to utility-small model '${vendorAndId}' (identifier: '${matches[0]}', label: '${label}')`);
+			return matches[0];
+		}
+		if (matches.length > 1) {
+			this.logService.trace(`[ChatService] system-initiated request found ${matches.length} ambiguous matches for utility-small model '${vendorAndId}'; falling back to caller's model (label: '${label}')`);
+			return undefined;
+		}
+		this.logService.trace(`[ChatService] system-initiated request could not resolve utility-small model '${vendorAndId}'; falling back to caller's model (label: '${label}')`);
 		return undefined;
 	}
 
+	/**
+	 * Returns a new options object with `userSelectedModelId` overridden to the utility-small
+	 * model when this is a system-initiated request, otherwise returns `options` unchanged.
+	 */
+	private _applySystemInitiatedModelOverride(options: IChatSendRequestOptions | undefined): IChatSendRequestOptions | undefined {
+		const resolved = this._resolveSystemInitiatedModelId(options);
+		if (resolved === undefined) {
+			return options;
+		}
+		return { ...options!, userSelectedModelId: resolved };
+	}
+
 	private _sendRequestAsync(model: ChatModel, sessionResource: URI, parsedRequest: IParsedChatRequest, attempt: number, enableCommandDetection: boolean, defaultAgent: IChatAgentData, location: ChatAgentLocation, options?: IChatSendRequestOptions): IChatSendRequestResponseState {
+		options = this._applySystemInitiatedModelOverride(options);
 		const followupsCancelToken = this.refreshFollowupsCancellationToken(sessionResource);
 		let request: ChatRequestModel | undefined;
 		const agentPart = parsedRequest.parts.find((r): r is ChatRequestAgentPart => r instanceof ChatRequestAgentPart);
@@ -1258,8 +1283,7 @@ export class ChatService extends Disposable implements IChatService {
 					const initialAgent = agentPart?.agent ?? defaultAgent;
 					const initialCommand = agentSlashCommandPart?.command;
 					const initVariableData: IChatRequestVariableData = { variables: [] };
-					const effectiveUserSelectedModelId = this._resolveSystemInitiatedModelId(options) ?? options?.userSelectedModelId;
-					request = model.addRequest(parsedRequest, initVariableData, attempt, options?.modeInfo, initialAgent, initialCommand, options?.confirmation, options?.locationData, options?.attachedContext, undefined, effectiveUserSelectedModelId, options?.userSelectedTools?.get(), undefined, options?.isSystemInitiated, options?.systemInitiatedLabel, options?.terminalExecutionId);
+					request = model.addRequest(parsedRequest, initVariableData, attempt, options?.modeInfo, initialAgent, initialCommand, options?.confirmation, options?.locationData, options?.attachedContext, undefined, options?.userSelectedModelId, options?.userSelectedTools?.get(), undefined, options?.isSystemInitiated, options?.systemInitiatedLabel, options?.terminalExecutionId);
 					const thisRequest = request;
 					completeResponseCreated();
 
